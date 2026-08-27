@@ -1,0 +1,18 @@
+[package]
+name = "seabird-tempest"
+version = "0.1.0"
+edition = "2021"
+description = "Seabird bot that prints the latest Tempest weather at every house from a tempest-aggregator instance"
+
+[dependencies]
+anyhow = "1"
+futures = "0.3"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+seabird = "0.4.0-alpha.4"
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+[profile.release]
+strip = true
