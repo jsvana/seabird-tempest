@@ -23,7 +23,7 @@ and prints one line of weather per house. Runs in a container on blackpearl
 
 Single file, `src/main.rs`:
 
-- `main` — env config, reconnect loop with backoff + 120s idle watchdog
+- `main` — env config, reconnect loop with backoff + 10-minute idle watchdog
   (mirrors seabird-ham), registers the `tempest` command via `stream_events`.
 - `handle_tempest` — fetch latest, group, one `send_message` per house.
 - `group_houses` — splits `<house>.<metric>` names; unprefixed metrics are

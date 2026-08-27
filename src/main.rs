@@ -300,8 +300,8 @@ async fn main() -> Result<()> {
                     }
                 }
                 _ = watchdog.tick() => {
-                    if last_event.elapsed() > Duration::from_secs(120) {
-                        error!("event stream timeout (no events for 120 seconds)");
+                    if last_event.elapsed() > Duration::from_secs(600) {
+                        error!("event stream timeout (no events for 10 minutes)");
                         break Err(anyhow!("stream timeout"));
                     }
                 }
