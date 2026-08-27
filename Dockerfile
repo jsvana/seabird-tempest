@@ -3,7 +3,7 @@
 FROM rust:1-bookworm AS builder
 WORKDIR /app
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends protobuf-compiler \
+    && apt-get install -y --no-install-recommends protobuf-compiler libprotobuf-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Cache dependencies separately from source changes.
