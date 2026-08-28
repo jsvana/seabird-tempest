@@ -21,10 +21,10 @@ struct TempestConfig {
     token: String,
 }
 
-async fn fetch_latest(config: &TempestConfig) -> Result<HashMap<String, LatestEntry>> {
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(10))
-        .build()?;
+async fn fetch_latest(
+    client: &reqwest::Client,
+    config: &TempestConfig,
+) -> Result<HashMap<String, LatestEntry>> {
     let response = client
         .get(format!(
             "{}/api/v1/latest",
@@ -35,6 +35,34 @@ async fn fetch_latest(config: &TempestConfig) -> Result<HashMap<String, LatestEn
         .await?
         .error_for_status()?;
     Ok(response.json().await?)
+}
+
+/// (low, high) of a house's temperature over the last 24 hours, from the
+/// aggregator's distribution endpoint. None when there are no samples.
+async fn fetch_temperature_range(
+    client: &reqwest::Client,
+    config: &TempestConfig,
+    house: &str,
+) -> Result<Option<(f64, f64)>> {
+    #[derive(Deserialize)]
+    struct Range {
+        min: f64,
+        max: f64,
+    }
+
+    let response = client
+        .get(format!(
+            "{}/api/v1/distributions/{house}.temperature?window=24h",
+            config.url.trim_end_matches('/')
+        ))
+        .bearer_auth(&config.token)
+        .send()
+        .await?;
+    if response.status() == reqwest::StatusCode::NOT_FOUND {
+        return Ok(None);
+    }
+    let range: Range = response.error_for_status()?.json().await?;
+    Ok(Some((range.min, range.max)))
 }
 
 /// Group `house.metric` entries by house. Metrics without a `.` (the legacy
@@ -56,15 +84,6 @@ fn group_houses(
     houses
 }
 
-fn compass(degrees: f64) -> &'static str {
-    const DIRECTIONS: [&str; 16] = [
-        "N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW",
-        "NW", "NNW",
-    ];
-    let index = ((degrees.rem_euclid(360.0) / 22.5).round() as usize) % 16;
-    DIRECTIONS[index]
-}
-
 fn format_age(secs: i64) -> String {
     let secs = secs.max(0);
     if secs < 90 {
@@ -78,51 +97,34 @@ fn format_age(secs: i64) -> String {
     }
 }
 
-fn format_house(house: &str, metrics: &BTreeMap<String, LatestEntry>) -> String {
+/// Freshness threshold beyond which a house line gets a "Last report" note.
+const STALE_AFTER_SECS: i64 = 15 * 60;
+
+fn format_house(
+    house: &str,
+    metrics: &BTreeMap<String, LatestEntry>,
+    temperature_range: Option<(f64, f64)>,
+) -> String {
     let value = |name: &str| metrics.get(name).map(|entry| entry.value);
-    let mut parts = Vec::new();
+    let mut sentences = Vec::new();
 
     if let Some(temperature) = value("temperature") {
-        let mut part = format!("🌡️ {temperature:.1}°F");
+        let mut sentence = format!("Currently {temperature:.1}°F");
         if let Some(feels_like) = value("feels_like") {
-            if (feels_like - temperature).abs() >= 1.0 {
-                part.push_str(&format!(" (feels {feels_like:.1})"));
-            }
+            sentence.push_str(&format!(", Feels Like {feels_like:.1}°F"));
         }
-        parts.push(part);
+        sentences.push(sentence);
+    }
+    if let Some((low, high)) = temperature_range {
+        sentences.push(format!("High {high:.1}°F, Low {low:.1}°F"));
     }
     if let Some(humidity) = value("humidity") {
-        parts.push(format!("💧 {humidity:.0}%"));
-    }
-    if let Some(wind) = value("wind_speed_average").or_else(|| value("wind_speed")) {
-        let mut part = format!("🌬️ {wind:.1} mph");
-        let mut extras = Vec::new();
-        if let Some(gust) = value("wind_gust") {
-            extras.push(format!("gust {gust:.1}"));
-        }
-        if let Some(direction) = value("wind_direction") {
-            extras.push(compass(direction).to_string());
-        }
-        if !extras.is_empty() {
-            part.push_str(&format!(" ({})", extras.join(", ")));
-        }
-        parts.push(part);
-    }
-    if let Some(rain_rate) = value("rain_rate") {
-        if rain_rate > 0.0 {
-            parts.push(format!("☔ {rain_rate:.2} in/h"));
-        }
-    }
-    if let Some(uv_index) = value("uv_index") {
-        parts.push(format!("☀️ UV {uv_index:.1}"));
-    }
-    if let Some(pressure) = value("pressure") {
-        parts.push(format!("{pressure:.2} inHg"));
+        sentences.push(format!("Humidity {humidity:.0}%"));
     }
 
-    if parts.is_empty() {
+    if sentences.is_empty() {
         // A house pushing only metrics this bot doesn't format still shows up.
-        parts.push(format!("{} metrics", metrics.len()));
+        sentences.push(format!("{} metrics reported", metrics.len()));
     }
 
     let age = metrics
@@ -130,7 +132,11 @@ fn format_house(house: &str, metrics: &BTreeMap<String, LatestEntry>) -> String 
         .map(|entry| entry.age_secs)
         .min()
         .unwrap_or(0);
-    format!("{house}: {} — {}", parts.join(" "), format_age(age))
+    if age > STALE_AFTER_SECS {
+        sentences.push(format!("Last report {}", format_age(age)));
+    }
+
+    format!("{house}: {}.", sentences.join(". "))
 }
 
 fn with_reply(command_source: &ChannelSource, message: String) -> String {
@@ -150,7 +156,10 @@ async fn handle_tempest(
     tempest: &TempestConfig,
     command_source: ChannelSource,
 ) -> Result<()> {
-    let houses = match fetch_latest(tempest).await {
+    let http = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()?;
+    let houses = match fetch_latest(&http, tempest).await {
         Ok(latest) => group_houses(latest),
         Err(err) => {
             error!("failed to fetch weather: {err:#}");
@@ -177,10 +186,17 @@ async fn handle_tempest(
     }
 
     for (house, metrics) in &houses {
+        let range = match fetch_temperature_range(&http, tempest, house).await {
+            Ok(range) => range,
+            Err(err) => {
+                error!("failed to fetch temperature range for {house}: {err:#}");
+                None
+            }
+        };
         client
             .send_message(
                 command_source.channel_id.clone(),
-                format_house(house, metrics),
+                format_house(house, metrics, range),
                 /* tags = */ None,
             )
             .await?;
@@ -343,29 +359,30 @@ mod tests {
     #[test]
     fn formats_house_line() {
         let metrics = BTreeMap::from_iter([
-            ("temperature".to_string(), entry(77.03, 42)),
-            ("humidity".to_string(), entry(66.4, 42)),
-            ("wind_speed_average".to_string(), entry(3.02, 42)),
-            ("wind_gust".to_string(), entry(5.2, 42)),
-            ("wind_direction".to_string(), entry(350.0, 42)),
-            ("rain_rate".to_string(), entry(0.0, 42)),
-            ("uv_index".to_string(), entry(2.51, 42)),
-            ("pressure".to_string(), entry(29.93, 42)),
+            ("temperature".to_string(), entry(62.14, 42)),
+            ("feels_like".to_string(), entry(62.0, 42)),
+            ("humidity".to_string(), entry(85.4, 42)),
+            ("wind_speed".to_string(), entry(3.0, 42)),
         ]);
-        let line = format_house("jsvana", &metrics);
+        let line = format_house("jsvana", &metrics, Some((62.1, 79.8)));
         assert_eq!(
             line,
-            "jsvana: 🌡️ 77.0°F 💧 66% 🌬️ 3.0 mph (gust 5.2, N) ☀️ UV 2.5 29.93 inHg — 42s ago"
+            "jsvana: Currently 62.1°F, Feels Like 62.0°F. High 79.8°F, Low 62.1°F. Humidity 85%."
         );
     }
 
     #[test]
-    fn compass_points() {
-        assert_eq!(compass(0.0), "N");
-        assert_eq!(compass(350.0), "N");
-        assert_eq!(compass(347.0), "NNW");
-        assert_eq!(compass(90.0), "E");
-        assert_eq!(compass(200.0), "SSW");
+    fn formats_stale_house_line() {
+        let metrics = BTreeMap::from_iter([("temperature".to_string(), entry(70.0, 7200))]);
+        let line = format_house("belak", &metrics, None);
+        assert_eq!(line, "belak: Currently 70.0°F. Last report 2h ago.");
+    }
+
+    #[test]
+    fn formats_unknown_metrics_only() {
+        let metrics = BTreeMap::from_iter([("battery".to_string(), entry(99.0, 42))]);
+        let line = format_house("ghavil", &metrics, None);
+        assert_eq!(line, "ghavil: 1 metrics reported.");
     }
 
     #[test]

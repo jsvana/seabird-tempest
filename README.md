@@ -6,7 +6,7 @@ command prints the latest weather at every house reporting to a
 
 ```
 <jsvana> !tempest
-<seabird> jsvana: 🌡️ 77.0°F 💧 66% 🌬️ 3.0 mph (gust 5.2, N) ☀️ UV 2.5 29.93 inHg — 42s ago
+<seabird> jsvana: Currently 62.1°F, Feels Like 62.0°F. High 79.8°F, Low 62.1°F. Humidity 85%.
 ```
 
 ## The house convention
@@ -22,11 +22,13 @@ curl -X POST -H "Authorization: Bearer twa_..." -H 'Content-Type: application/js
   https://tempest.westpeninsulashould.works/api/v1/observations
 ```
 
-The bot groups `/api/v1/latest` by the prefix and prints one line per house.
-Metrics without a `.` prefix are ignored. Values are assumed imperial
-(°F, mph, in/h, inHg). Recognized metric names: `temperature`, `feels_like`,
-`humidity`, `wind_speed`/`wind_speed_average`, `wind_gust`, `wind_direction`
-(degrees), `rain_rate`, `uv_index`, `pressure`.
+The bot groups `/api/v1/latest` by the prefix and prints one line per house,
+always prefixed `<house>: `. Metrics without a `.` prefix are ignored. Values
+are assumed imperial (°F). The line shows `temperature` (with `feels_like`),
+the 24h high/low (from the aggregator's distribution endpoint), and
+`humidity`; other metrics are stored and queryable but not shown. Houses
+whose freshest sample is older than 15 minutes get a "Last report X ago"
+note.
 
 ## Configuration (environment)
 

@@ -25,10 +25,13 @@ Single file, `src/main.rs`:
 
 - `main` — env config, reconnect loop with backoff + 10-minute idle watchdog
   (mirrors seabird-ham), registers the `tempest` command via `stream_events`.
-- `handle_tempest` — fetch latest, group, one `send_message` per house.
+- `handle_tempest` — fetch latest + per-house 24h temperature range
+  (distribution endpoint), group, one `send_message` per house.
 - `group_houses` — splits `<house>.<metric>` names; unprefixed metrics are
   ignored (legacy data, test junk).
-- `format_house` / `compass` / `format_age` — pure formatting, unit-tested.
+- `format_house` / `format_age` — pure formatting, unit-tested. Lines are
+  `<house>: Currently ...°F, Feels Like ... High/Low ... Humidity ...` with a
+  stale note past 15 minutes.
 
 Config is env-only: `SEABIRD_URL`, `SEABIRD_TOKEN`, `TEMPEST_URL`,
 `TEMPEST_TOKEN`. Values are assumed imperial.
