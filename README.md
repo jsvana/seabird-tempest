@@ -19,7 +19,7 @@ Anyone with a write token pushes their house's numbers:
 curl -X POST -H "Authorization: Bearer twa_..." -H 'Content-Type: application/json' \
   -d '[{"metric": "belak.temperature", "value": 65.2},
        {"metric": "belak.humidity", "value": 71}]' \
-  http://<aggregator>/api/v1/observations
+  https://tempest.westpeninsulashould.works/api/v1/observations
 ```
 
 The bot groups `/api/v1/latest` by the prefix and prints one line per house.
@@ -41,7 +41,7 @@ Metrics without a `.` prefix are ignored. Values are assumed imperial
 
 ```bash
 docker build -t seabird-tempest .
-docker run -d -e SEABIRD_TOKEN=... -e TEMPEST_URL=http://host:8095 -e TEMPEST_TOKEN=twa_... seabird-tempest
+docker run -d -e SEABIRD_TOKEN=... -e TEMPEST_URL=https://tempest.westpeninsulashould.works -e TEMPEST_TOKEN=twa_... seabird-tempest
 ```
 
 Images are published to `ghcr.io/jsvana/seabird-tempest` on pushes to main.
