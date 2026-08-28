@@ -1,12 +1,23 @@
 # seabird-tempest
 
 A [seabird](https://github.com/seabird-chat) bot with one job: the `tempest`
-command prints the latest weather at every house reporting to a
+command prints the latest weather from a
 [tempest-aggregator](https://github.com/jsvana/tempest-aggregator) instance.
+
+With no argument it prints the house matching your nick:
 
 ```
 <jsvana> !tempest
 <seabird> jsvana: Currently 62.1°F, Feels Like 62.0°F. High 79.8°F, Low 62.1°F. Humidity 85%.
+```
+
+`!tempest <house>` prints someone else's, and `!tempest all` prints every house.
+Nick and house matching is case-insensitive. If nothing matches, the bot says so
+and lists the houses it knows about:
+
+```
+<ghavil> !tempest
+<seabird> ghavil: no house named ghavil (houses: belak, jsvana). Try !tempest all.
 ```
 
 ## The house convention
@@ -22,8 +33,8 @@ curl -X POST -H "Authorization: Bearer twa_..." -H 'Content-Type: application/js
   https://tempest.westpeninsulashould.works/api/v1/observations
 ```
 
-The bot groups `/api/v1/latest` by the prefix and prints one line per house,
-always prefixed `<house>: `. Metrics without a `.` prefix are ignored. Values
+The bot groups `/api/v1/latest` by the prefix and prints one line per selected
+house, always prefixed `<house>: `. Metrics without a `.` prefix are ignored. Values
 are assumed imperial (°F). The line shows `temperature` (with `feels_like`),
 the 24h high/low (from the aggregator's distribution endpoint), and
 `humidity`; other metrics are stored and queryable but not shown. Houses

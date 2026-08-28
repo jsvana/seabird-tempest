@@ -25,8 +25,12 @@ Single file, `src/main.rs`:
 
 - `main` — env config, reconnect loop with backoff + 10-minute idle watchdog
   (mirrors seabird-ham), registers the `tempest` command via `stream_events`.
-- `handle_tempest` — fetch latest + per-house 24h temperature range
-  (distribution endpoint), group, one `send_message` per house.
+- `handle_tempest` — fetch latest, group, pick houses via `select_houses`, then
+  per-house 24h temperature range (distribution endpoint) and one
+  `send_message` per house.
+- `select_houses` — pure arg/nick routing: bare command picks the requester's
+  house by nick, `all` picks every house, anything else is a house name; no
+  match yields a hint listing known houses. Matching is case-insensitive.
 - `group_houses` — splits `<house>.<metric>` names; unprefixed metrics are
   ignored (legacy data, test junk).
 - `format_house` / `format_age` — pure formatting, unit-tested. Lines are

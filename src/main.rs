@@ -84,6 +84,41 @@ fn group_houses(
     houses
 }
 
+/// Which houses a `tempest` invocation should print, or the hint to send back
+/// when nothing matched.
+#[derive(Debug, PartialEq, Eq)]
+enum Selection {
+    Houses(Vec<String>),
+    Hint(String),
+}
+
+fn select_houses(
+    arg: &str,
+    nick: Option<&str>,
+    houses: &BTreeMap<String, BTreeMap<String, LatestEntry>>,
+) -> Selection {
+    let all = || Selection::Houses(houses.keys().cloned().collect());
+
+    let name = match arg.split_whitespace().next() {
+        Some(name) if name.eq_ignore_ascii_case("all") => return all(),
+        Some(name) => name,
+        // A bare `tempest` reports the requester's own house. Command events
+        // should always carry a user, but without one there is no nick to match.
+        None => match nick {
+            Some(nick) => nick,
+            None => return all(),
+        },
+    };
+
+    match houses.keys().find(|house| house.eq_ignore_ascii_case(name)) {
+        Some(house) => Selection::Houses(vec![house.clone()]),
+        None => Selection::Hint(format!(
+            "no house named {name} (houses: {}). Try !tempest all.",
+            houses.keys().cloned().collect::<Vec<_>>().join(", ")
+        )),
+    }
+}
+
 fn format_age(secs: i64) -> String {
     let secs = secs.max(0);
     if secs < 90 {
@@ -155,6 +190,7 @@ async fn handle_tempest(
     client: &mut SeabirdClient,
     tempest: &TempestConfig,
     command_source: ChannelSource,
+    arg: &str,
 ) -> Result<()> {
     let http = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
@@ -185,7 +221,26 @@ async fn handle_tempest(
         return Ok(());
     }
 
-    for (house, metrics) in &houses {
+    let nick = command_source
+        .user
+        .as_ref()
+        .map(|user| user.display_name.as_str());
+    let selected = match select_houses(arg, nick, &houses) {
+        Selection::Houses(selected) => selected,
+        Selection::Hint(hint) => {
+            client
+                .send_message(
+                    command_source.channel_id.clone(),
+                    with_reply(&command_source, hint),
+                    /* tags = */ None,
+                )
+                .await?;
+            return Ok(());
+        }
+    };
+
+    for house in &selected {
+        let metrics = &houses[house];
         let range = match fetch_temperature_range(&http, tempest, house).await {
             Ok(range) => range,
             Err(err) => {
@@ -218,7 +273,7 @@ async fn process_event(
     {
         if command == "tempest" {
             info!("[cmd:tempest] {}", arg);
-            handle_tempest(client, tempest, command_source).await?;
+            handle_tempest(client, tempest, command_source, &arg).await?;
         }
     }
 
@@ -240,9 +295,10 @@ async fn main() -> Result<()> {
         "tempest".to_string(),
         CommandMetadata {
             name: "tempest".to_string(),
-            short_help: "latest weather at all houses".to_string(),
-            full_help: "Print the latest Tempest weather at every house reporting to the \
-                        aggregator."
+            short_help: "latest weather at your house; <house> or all for others".to_string(),
+            full_help: "Print the latest Tempest weather. With no argument, prints the house \
+                        matching your nick. `tempest <house>` prints one house, `tempest all` \
+                        prints every house reporting to the aggregator."
                 .to_string(),
         },
     )]);
@@ -383,6 +439,82 @@ mod tests {
         let metrics = BTreeMap::from_iter([("battery".to_string(), entry(99.0, 42))]);
         let line = format_house("ghavil", &metrics, None);
         assert_eq!(line, "ghavil: 1 metrics reported.");
+    }
+
+    fn houses(names: &[&str]) -> BTreeMap<String, BTreeMap<String, LatestEntry>> {
+        names
+            .iter()
+            .map(|name| {
+                (
+                    name.to_string(),
+                    BTreeMap::from_iter([("temperature".to_string(), entry(70.0, 30))]),
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn bare_command_picks_the_requesters_house() {
+        let selection = select_houses("", Some("jsvana"), &houses(&["belak", "jsvana"]));
+        assert_eq!(selection, Selection::Houses(vec!["jsvana".to_string()]));
+    }
+
+    #[test]
+    fn bare_command_matches_the_nick_case_insensitively() {
+        let selection = select_houses("", Some("JSvana"), &houses(&["belak", "jsvana"]));
+        assert_eq!(selection, Selection::Houses(vec!["jsvana".to_string()]));
+    }
+
+    #[test]
+    fn bare_command_hints_when_the_nick_matches_no_house() {
+        let selection = select_houses("", Some("ghavil"), &houses(&["belak", "jsvana"]));
+        assert_eq!(
+            selection,
+            Selection::Hint(
+                "no house named ghavil (houses: belak, jsvana). Try !tempest all.".to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn bare_command_without_a_user_shows_every_house() {
+        let selection = select_houses("", None, &houses(&["belak", "jsvana"]));
+        assert_eq!(
+            selection,
+            Selection::Houses(vec!["belak".to_string(), "jsvana".to_string()])
+        );
+    }
+
+    #[test]
+    fn all_selects_every_house() {
+        let selection = select_houses("all", Some("jsvana"), &houses(&["belak", "jsvana"]));
+        assert_eq!(
+            selection,
+            Selection::Houses(vec!["belak".to_string(), "jsvana".to_string()])
+        );
+    }
+
+    #[test]
+    fn a_named_house_selects_only_that_house() {
+        let selection = select_houses("belak", Some("jsvana"), &houses(&["belak", "jsvana"]));
+        assert_eq!(selection, Selection::Houses(vec!["belak".to_string()]));
+    }
+
+    #[test]
+    fn a_named_house_is_matched_case_insensitively_and_trimmed() {
+        let selection = select_houses("  BELAK  ", None, &houses(&["belak", "jsvana"]));
+        assert_eq!(selection, Selection::Houses(vec!["belak".to_string()]));
+    }
+
+    #[test]
+    fn an_unknown_house_hints() {
+        let selection = select_houses("nope", Some("jsvana"), &houses(&["belak", "jsvana"]));
+        assert_eq!(
+            selection,
+            Selection::Hint(
+                "no house named nope (houses: belak, jsvana). Try !tempest all.".to_string()
+            )
+        );
     }
 
     #[test]
