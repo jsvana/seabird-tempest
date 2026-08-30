@@ -151,6 +151,34 @@ fn format_rain(rain_rate: Option<f64>) -> Option<String> {
     Some(format!("{intensity} rain, {rate:.2} in/hr"))
 }
 
+fn compass(degrees: f64) -> &'static str {
+    const POINTS: [&str; 16] = [
+        "N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW",
+        "NW", "NNW",
+    ];
+    POINTS[(degrees / 22.5).round() as usize % 16]
+}
+
+/// Wind clause for a house line, or None when it's calm. Speeds are mph. The
+/// bearing is dropped when the wind is still, since the sensor stops updating
+/// it and the last reading goes stale.
+fn format_wind(speed: Option<f64>, gust: Option<f64>, direction: Option<f64>) -> Option<String> {
+    let speed = speed.unwrap_or(0.0);
+    let gust = gust.unwrap_or(0.0);
+    if speed <= 0.0 {
+        return (gust > 0.0).then(|| format!("Gusting to {gust:.1}mph"));
+    }
+
+    let mut clause = format!("Wind {speed:.1}mph");
+    if let Some(direction) = direction {
+        clause.push_str(&format!(" {}", compass(direction)));
+    }
+    if gust > speed {
+        clause.push_str(&format!(", gusts {gust:.1}"));
+    }
+    Some(clause)
+}
+
 /// Freshness threshold beyond which a house line gets a "Last report" note.
 const STALE_AFTER_SECS: i64 = 15 * 60;
 
@@ -177,6 +205,13 @@ fn format_house(
     }
     if let Some(rain) = format_rain(value("rain_rate")) {
         sentences.push(rain);
+    }
+    if let Some(wind) = format_wind(
+        value("wind_speed"),
+        value("wind_gust"),
+        value("wind_direction"),
+    ) {
+        sentences.push(wind);
     }
 
     if sentences.is_empty() {
@@ -445,7 +480,7 @@ mod tests {
         let line = format_house("jsvana", &metrics, Some((62.1, 79.8)));
         assert_eq!(
             line,
-            "jsvana: Currently 62.1°F, Feels Like 62.0°F. High 79.8°F, Low 62.1°F. Humidity 85%."
+            "jsvana: Currently 62.1°F, Feels Like 62.0°F. High 79.8°F, Low 62.1°F. Humidity 85%. Wind 3.0mph."
         );
     }
 
@@ -477,6 +512,59 @@ mod tests {
         assert_eq!(
             line,
             "ghavil: Currently 50.1°F. Humidity 92%. Moderate rain, 0.22 in/hr."
+        );
+    }
+
+    #[test]
+    fn compass_points() {
+        let cases = [(0.0, "N"), (121.0, "ESE"), (180.0, "S"), (359.0, "N")];
+        for (degrees, expected) in cases {
+            assert_eq!(compass(degrees), expected, "{degrees} degrees");
+        }
+    }
+
+    #[test]
+    fn wind_clauses() {
+        let cases = [
+            (None, None, None, None),
+            (Some(0.0), Some(0.0), Some(121.0), None),
+            (
+                Some(0.0),
+                Some(2.75),
+                Some(121.0),
+                Some("Gusting to 2.8mph"),
+            ),
+            (
+                Some(3.5),
+                Some(6.2),
+                Some(121.0),
+                Some("Wind 3.5mph ESE, gusts 6.2"),
+            ),
+            (Some(3.5), Some(3.5), Some(121.0), Some("Wind 3.5mph ESE")),
+            (Some(3.5), None, None, Some("Wind 3.5mph")),
+        ];
+        for (speed, gust, direction, expected) in cases {
+            assert_eq!(
+                format_wind(speed, gust, direction).as_deref(),
+                expected,
+                "speed {speed:?} gust {gust:?} direction {direction:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn formats_house_line_with_wind() {
+        let metrics = BTreeMap::from_iter([
+            ("temperature".to_string(), entry(50.1, 38)),
+            ("humidity".to_string(), entry(92.0, 38)),
+            ("wind_speed".to_string(), entry(3.5365962777380173, 38)),
+            ("wind_gust".to_string(), entry(6.24105225483178, 38)),
+            ("wind_direction".to_string(), entry(121.0, 4658)),
+        ]);
+        let line = format_house("jsvana", &metrics, None);
+        assert_eq!(
+            line,
+            "jsvana: Currently 50.1°F. Humidity 92%. Wind 3.5mph ESE, gusts 6.2."
         );
     }
 
