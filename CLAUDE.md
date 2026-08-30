@@ -33,9 +33,10 @@ Single file, `src/main.rs`:
   match yields a hint listing known houses. Matching is case-insensitive.
 - `group_houses` — splits `<house>.<metric>` names; unprefixed metrics are
   ignored (legacy data, test junk).
-- `format_house` / `format_age` — pure formatting, unit-tested. Lines are
-  `<house>: Currently ...°F, Feels Like ... High/Low ... Humidity ...` with a
-  stale note past 15 minutes.
+- `format_house` / `format_rain` / `format_age` — pure formatting, unit-tested.
+  Lines are `<house>: Currently ...°F, Feels Like ... High/Low ... Humidity ...`
+  with a rain clause only when `rain_rate` is nonzero, and a stale note past 15
+  minutes.
 
 Config is env-only: `SEABIRD_URL`, `SEABIRD_TOKEN`, `TEMPEST_URL`,
 `TEMPEST_TOKEN`. Values are assumed imperial.
