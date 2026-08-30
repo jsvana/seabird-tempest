@@ -302,6 +302,12 @@ async fn process_event(
     Ok(())
 }
 
+// Notify the systemd watchdog that we're still making progress. No-op when
+// not running under systemd (NOTIFY_SOCKET unset).
+fn ping_watchdog() {
+    let _ = sd_notify::notify(false, &[sd_notify::NotifyState::Watchdog]);
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt().init();
@@ -325,11 +331,14 @@ async fn main() -> Result<()> {
         },
     )]);
 
+    let _ = sd_notify::notify(false, &[sd_notify::NotifyState::Ready]);
+
     // Reconnection loop with exponential backoff, mirroring seabird-ham.
     let mut reconnect_delay = Duration::from_secs(1);
     let max_reconnect_delay = Duration::from_secs(60);
 
     loop {
+        ping_watchdog();
         info!("connecting with URL {}", url);
 
         let mut client = match SeabirdClient::new(ClientConfig {
@@ -394,6 +403,7 @@ async fn main() -> Result<()> {
                     }
                 }
                 _ = watchdog.tick() => {
+                    ping_watchdog();
                     if last_event.elapsed() > Duration::from_secs(600) {
                         error!("event stream timeout (no events for 10 minutes)");
                         break Err(anyhow!("stream timeout"));

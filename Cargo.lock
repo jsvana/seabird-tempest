@@ -1175,6 +1175,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9774ba4a74de5f7b1c1451ed6cd5285a32eddb5cccb8cc655a4e50009e06477f"
 
 [[package]]
+name = "sd-notify"
+version = "0.4.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b943eadf71d8b69e661330cb0e2656e31040acf21ee7708e2c238a0ec6af2bf4"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "seabird"
 version = "0.4.0-alpha.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1196,6 +1205,7 @@ dependencies = [
  "anyhow",
  "futures",
  "reqwest",
+ "sd-notify",
  "seabird",
  "serde",
  "tokio",
