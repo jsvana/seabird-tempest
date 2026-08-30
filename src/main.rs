@@ -132,6 +132,25 @@ fn format_age(secs: i64) -> String {
     }
 }
 
+/// Rain clause for a house line, or None when it isn't raining. `rain_rate` is
+/// in/hr; below 0.01 it rounds to 0.00, so those report as a trace.
+fn format_rain(rain_rate: Option<f64>) -> Option<String> {
+    let rate = rain_rate.filter(|rate| *rate > 0.0)?;
+    if rate < 0.01 {
+        return Some("Trace rain".to_string());
+    }
+    let intensity = if rate < 0.1 {
+        "Light"
+    } else if rate < 0.3 {
+        "Moderate"
+    } else if rate < 2.0 {
+        "Heavy"
+    } else {
+        "Torrential"
+    };
+    Some(format!("{intensity} rain, {rate:.2} in/hr"))
+}
+
 /// Freshness threshold beyond which a house line gets a "Last report" note.
 const STALE_AFTER_SECS: i64 = 15 * 60;
 
@@ -155,6 +174,9 @@ fn format_house(
     }
     if let Some(humidity) = value("humidity") {
         sentences.push(format!("Humidity {humidity:.0}%"));
+    }
+    if let Some(rain) = format_rain(value("rain_rate")) {
+        sentences.push(rain);
     }
 
     if sentences.is_empty() {
@@ -424,6 +446,37 @@ mod tests {
         assert_eq!(
             line,
             "jsvana: Currently 62.1°F, Feels Like 62.0°F. High 79.8°F, Low 62.1°F. Humidity 85%."
+        );
+    }
+
+    #[test]
+    fn rain_bands() {
+        let cases = [
+            (None, None),
+            (Some(0.0), None),
+            (Some(0.004), Some("Trace rain")),
+            (Some(0.01), Some("Light rain, 0.01 in/hr")),
+            (Some(0.0999), Some("Light rain, 0.10 in/hr")),
+            (Some(0.1), Some("Moderate rain, 0.10 in/hr")),
+            (Some(0.3), Some("Heavy rain, 0.30 in/hr")),
+            (Some(2.0), Some("Torrential rain, 2.00 in/hr")),
+        ];
+        for (rate, expected) in cases {
+            assert_eq!(format_rain(rate).as_deref(), expected, "rate {rate:?}");
+        }
+    }
+
+    #[test]
+    fn formats_house_line_with_rain() {
+        let metrics = BTreeMap::from_iter([
+            ("temperature".to_string(), entry(50.1, 17)),
+            ("humidity".to_string(), entry(92.0, 17)),
+            ("rain_rate".to_string(), entry(0.218822834645669, 17)),
+        ]);
+        let line = format_house("ghavil", &metrics, None);
+        assert_eq!(
+            line,
+            "ghavil: Currently 50.1°F. Humidity 92%. Moderate rain, 0.22 in/hr."
         );
     }
 

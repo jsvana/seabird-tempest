@@ -35,11 +35,24 @@ curl -X POST -H "Authorization: Bearer twa_..." -H 'Content-Type: application/js
 
 The bot groups `/api/v1/latest` by the prefix and prints one line per selected
 house, always prefixed `<house>: `. Metrics without a `.` prefix are ignored. Values
-are assumed imperial (°F). The line shows `temperature` (with `feels_like`),
+are assumed imperial (°F, in/hr). The line shows `temperature` (with `feels_like`),
 the 24h high/low (from the aggregator's distribution endpoint), and
 `humidity`; other metrics are stored and queryable but not shown. Houses
 whose freshest sample is older than 15 minutes get a "Last report X ago"
 note.
+
+A nonzero `rain_rate` adds a rain clause after the humidity, naming the
+intensity and the rate; nothing is printed when it isn't raining:
+
+```
+<ghavil> !tempest
+<seabird> ghavil: Currently 50.1°F, Feels Like 48.0°F. High 62.0°F, Low 49.0°F. Humidity 92%. Moderate rain, 0.22 in/hr.
+```
+
+Intensity uses the standard rain-rate bands converted to in/hr: light below
+0.1, moderate below 0.3, heavy below 2.0, torrential above. Rates under 0.01
+in/hr print as `Trace rain` without a number, which is also where the haptic
+sensor's stray taps land.
 
 ## Configuration (environment)
 
