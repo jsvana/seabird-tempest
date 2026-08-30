@@ -1,0 +1,64 @@
+name: Build main
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-main
+  cancel-in-progress: true
+
+jobs:
+  build-and-publish-latest:
+    name: Build and publish latest
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install protoc
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build release binary
+        run: cargo build --release --target x86_64-unknown-linux-gnu
+
+      - name: Create tarball
+        run: |
+          cd target/x86_64-unknown-linux-gnu/release
+          tar -czf seabird-tempest-latest-x86_64-linux.tar.gz seabird-tempest
+          mv seabird-tempest-latest-x86_64-linux.tar.gz ../../../
+
+      - name: Generate checksums
+        run: |
+          sha256sum seabird-tempest-latest-x86_64-linux.tar.gz > seabird-tempest-latest-x86_64-linux.tar.gz.sha256
+
+      - name: Update latest tag
+        run: |
+          git tag -f latest
+          git push -f origin latest
+
+      - name: Publish rolling latest release
+        run: |
+          if ! gh release view latest > /dev/null 2>&1; then
+            gh release create latest \
+              --prerelease \
+              --title "latest (main)" \
+              --notes "Rolling build of main."
+          fi
+          gh release upload latest --clobber \
+            seabird-tempest-latest-x86_64-linux.tar.gz \
+            seabird-tempest-latest-x86_64-linux.tar.gz.sha256
+          gh release edit latest \
+            --notes "Rolling build of main. Commit: ${GITHUB_SHA}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
