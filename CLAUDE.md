@@ -15,9 +15,11 @@ Quality gates before committing: `cargo fmt` -> `cargo clippy --all-targets` -> 
 
 A seabird-core bot (Rust, `seabird` crate) exposing one chat command:
 `tempest`, which fetches `/api/v1/latest` from a tempest-aggregator instance
-and prints one line of weather per house. Runs in a container on blackpearl
-(role `seabird_tempest` in ansible-blackpearl); image at
-`ghcr.io/jsvana/seabird-tempest`.
+and prints one line of weather per house. Runs as a native binary + systemd
+unit on blackpearl (role `seabird_tempest` in ansible-blackpearl). Pushes to
+main are auto-deployed: the build-main workflow publishes a rolling `latest`
+prerelease, and a `seabird-tempest-autodeploy.timer` on blackpearl polls it
+every 5 minutes.
 
 ## Architecture
 
