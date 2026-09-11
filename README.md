@@ -35,7 +35,7 @@ curl -X POST -H "Authorization: Bearer twa_..." -H 'Content-Type: application/js
 
 The bot groups `/api/v1/latest` by the prefix and prints one line per selected
 house, always prefixed `<house>: `. Metrics without a `.` prefix are ignored. Values
-are assumed imperial (°F, in/hr). The line shows `temperature` (with `feels_like`),
+are assumed imperial (°F, in/hr, mph). The line shows `temperature` (with `feels_like`),
 the 24h high/low (from the aggregator's distribution endpoint), and
 `humidity`; other metrics are stored and queryable but not shown. Houses
 whose freshest sample is older than 15 minutes get a "Last report X ago"
@@ -53,6 +53,19 @@ Intensity uses the standard rain-rate bands converted to in/hr: light below
 0.1, moderate below 0.3, heavy below 2.0, torrential above. Rates under 0.01
 in/hr print as `Trace rain` without a number, which is also where the haptic
 sensor's stray taps land.
+
+Wind follows, when there is any. A calm house gets no wind clause at all.
+Gusts appear only when they exceed the sustained speed, and the bearing is
+omitted when the wind is still, because the sensor stops updating it and the
+last reading goes stale:
+
+```
+<seabird> jsvana: ... Humidity 85%. Wind 3.5mph ENE, gusts 6.2.
+<seabird> ghavil: ... Humidity 99%. Gusting to 2.8mph.
+```
+
+`wind_speed_average` is not shown: only some houses report it, and where they
+do it tracks `wind_speed` closely.
 
 ## Configuration (environment)
 
